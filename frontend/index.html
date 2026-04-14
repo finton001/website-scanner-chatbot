@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Assistant</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            background: #000; 
+            color: #ececec; 
+            display: flex; 
+            flex-direction: column;
+        }
+        .chat-container { flex: 1; display: flex; flex-direction: column; max-width: 800px; margin: 0 auto; width: 100%; padding: 20px; padding-bottom: 100px; }
+        
+        .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 24px; padding-top: 24px; }
+        .message { display: flex; gap: 16px; max-width: 100%; }
+        .messageAvatar { width: 36px; height: 36px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+        .user .messageAvatar { background: #5436da; color: #fff; }
+        .bot .messageAvatar { background: #fff; color: #000; }
+        .messageContent { flex: 1; line-height: 1.6; font-size: 16px; white-space: pre-wrap; }
+        .user .messageContent { color: #fff; }
+        .bot .messageContent { color: #ececec; }
+        .bot .messageContent a { color: #23a9f2; }
+        .bot .messageContent code { background: #2d2d2d; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
+        .bot .messageContent pre { background: #2d2d2d; padding: 16px; border-radius: 8px; overflow-x: auto; margin: 8px 0; }
+        .bot .messageContent pre code { background: none; padding: 0; }
+        
+        .input-container { position: fixed; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, #000 60%, transparent); padding: 24px; display: flex; justify-content: center; }
+        .input-wrapper { max-width: 800px; width: 100%; position: relative; }
+        .input-box { 
+            background: #2d2d2d; border: none; border-radius: 12px; padding: 16px 60px 16px 16px; 
+            color: #fff; font-size: 16px; width: 100%; resize: none; outline: none; 
+            box-shadow: 0 0 15px rgba(0,0,0,0.3);
+        }
+        .input-box::placeholder { color: #8e8e8e; }
+        .send-btn { 
+            position: absolute; right: 12px; bottom: 12px; background: none; border: none; 
+            color: #fff; cursor: pointer; padding: 8px; opacity: 0.7; transition: 0.2s;
+        }
+        .send-btn:hover { opacity: 1; }
+        .send-btn:disabled { opacity: 0.3; cursor: default; }
+        
+        .loading { display: flex; gap: 12px; align-items: center; }
+        .loading-dot { width: 8px; height: 8px; background: #ececec; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out; }
+        .loading-dot:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+        
+        .status-indicator { position: fixed; top: 12px; right: 12px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: #8e8e8e; padding: 6px 12px; background: #1d1d1d; border-radius: 20px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .status-dot.connected { background: #10a981; }
+        .status-dot.disconnected { background: #ef4444; }
+        .status-dot.connecting { background: #f59e0b; }
+        
+        .welcome { text-align: center; padding: 40px 20px; }
+        .welcome h1 { font-size: 32px; margin-bottom: 16px; }
+        .welcome p { color: #8e8e8e; max-width: 500px; margin: 0 auto; }
+        .suggestions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; max-width: 500px; margin: 32px auto; }
+        .suggestion { background: #2d2d2d; border: none; border-radius: 8px; padding: 16px; text-align: left; color: #ececec; cursor: pointer; transition: 0.2s; }
+        .suggestion:hover { background: #3d3d3d; }
+    </style>
+</head>
+<body>
+    <div class="status-indicator" id="statusIndicator">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Checking connection...</span>
+    </div>
+    <div class="chat-container">
+        <div id="welcome" class="welcome">
+            <h1>Security Assistant</h1>
+            <p>I'm your security scanning assistant. I can help you find vulnerabilities in web applications, explain security concepts, or just chat with you.</p>
+            <div class="suggestions">
+                <button class="suggestion" onclick="sendMessage('Scan example.com for vulnerabilities')">Scan a website</button>
+                <button class="suggestion" onclick="sendMessage('Explain what security headers are')">Explain security headers</button>
+                <button class="suggestion" onclick="sendMessage('What is XSS?')">What is XSS?</button>
+                <button class="suggestion" onclick="sendMessage('How can I protect my website?')">Website protection tips</button>
+            </div>
+        </div>
+        <div class="messages" id="messages" style="display: none;"></div>
+    </div>
+    
+    <div class="input-container">
+        <div class="input-wrapper">
+            <textarea class="input-box" id="input" placeholder="Send a message..." rows="1"></textarea>
+            <button class="send-btn" id="sendBtn" onclick="handleSend()">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const input = document.getElementById('input');
+        const sendBtn = document.getElementById('sendBtn');
+        const messagesDiv = document.getElementById('messages');
+        const welcomeDiv = document.getElementById('welcome');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const statusIndicator = document.getElementById('statusIndicator');
+        
+        const API_URL = 'http://localhost:5000';
+        
+        async function checkBackendHealth() {
+            statusDot.className = 'status-dot connecting';
+            statusText.textContent = 'Connecting...';
+            
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                
+                const res = await fetch(API_URL + '/scan', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({target: 'health.check'}),
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                
+                statusDot.className = 'status-dot connected';
+                statusText.textContent = 'Backend connected';
+            } catch (e) {
+                statusDot.className = 'status-dot disconnected';
+                if (e.name === 'AbortError') {
+                    statusText.textContent = 'Backend timeout';
+                } else if (e.message?.includes('Failed to fetch') || e.message?.includes('NetworkError')) {
+                    statusText.textContent = 'Backend offline';
+                } else {
+                    statusText.textContent = 'Connection error';
+                }
+            }
+        }
+        
+        checkBackendHealth();
+        
+        const SCAN_PATTERN = /(scan|check|find|vulnerab(ility|le)|security headers?)\s+(?:for\s+)?(.+?)(?:\s+for|\s+please|\s*$)/i;
+        const SIMPLE_SCAN = /^(?:https?:\/\/)?[\w.-]+\.\w{2,}$/;
+        
+        const KNOWLEDGE = {
+            'security headers': 'Security headers are HTTP response headers that help protect web applications from attacks. Common ones include: HSTS (forces HTTPS), CSP (prevents XSS), X-Frame-Options (prevents clickjacking), and X-Content-Type-Options (prevents MIME sniffing).',
+            'xss': 'Cross-Site Scripting (XSS) is a vulnerability that allows attackers to inject malicious scripts into web pages viewed by other users. It occurs when web apps include untrusted data without proper validation.',
+            'sql injection': 'SQL injection is an attack where malicious SQL code is inserted into application queries. It can allow attackers to access, modify, or delete database data.',
+            'clickjacking': 'Clickjacking tricks users into clicking invisible or disguised elements. Attackers overlay transparent pages over legitimate ones to hijack clicks.',
+            'https': 'HTTPS is the secure version of HTTP. It encrypts data in transit using TLS/SSL, preventing eavesdropping and tampering.',
+            'cors': 'Cross-Origin Resource Sharing (CORS) is a mechanism that allows restricted resources to be accessed from other domains. Misconfigured CORS can expose sensitive data.',
+            'protect my website': 'To protect your website: 1) Use HTTPS everywhere, 2) Implement security headers (CSP, HSTS, X-Frame-Options), 3) Validate all user input, 4) Use parameterized queries, 5) Keep software updated, 6) Use a WAF.',
+        };
+        
+        const RESPONSES = {
+            greeting: ["Hello! How can I help you today?", "Hi there! What would you like to know about security?", "Hey! I'm here to help with security scanning or answer questions."],
+            thanks: ["You're welcome!", "Glad I could help!", "Happy to assist!"],
+            help: ["I can help you in several ways:\n• Scan a website for missing security headers (just say 'scan example.com')\n• Explain security concepts\n• Answer questions about web security\n• Provide protection recommendations"],
+            unclear: ["I'm not sure I understood that. Would you like to:\n• Scan a website (e.g., 'scan example.com')\n• Learn about security concepts\n• Ask me a security question"],
+        };
+
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } });
+        
+        function sendMessage(text) {
+            welcomeDiv.style.display = 'none';
+            messagesDiv.style.display = 'flex';
+            processMessage(text);
+        }
+        
+        function handleSend() {
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = '';
+            sendMessage(text);
+        }
+        
+        async function processMessage(text) {
+            addMessage(text, 'user');
+            input.disabled = true;
+            sendBtn.disabled = true;
+            
+            const loadingId = addLoading();
+            
+            const lower = text.toLowerCase();
+            const scanMatch = text.match(SCAN_PATTERN);
+            
+            const isScan = scanMatch || SIMPLE_SCAN.test(text);
+            if (isScan) {
+                let target = text.trim();
+                if (scanMatch) {
+                    target = scanMatch[2].trim();
+                } else {
+                    target = target.replace(/^(scan|check|find|vulnerab|security headers)\s*/i, '').trim();
+                }
+                target = target.replace(/^(https?:\/\/)?/, '').replace(/\/.*$/, '');
+                
+                try {
+                    const res = await fetch(API_URL + '/scan', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({target})
+                    });
+                    const data = await res.json();
+                    removeLoading(loadingId);
+                    
+                    if (data.error) {
+                        addMessage(`Error scanning ${target}: ${data.error}`, 'bot');
+                    } else {
+                        let response = `## Security Header Scan: ${data.target}\n\n`;
+                        response += `**Summary:** ${data.summary}\n\n`;
+                        
+                        if (data.missing_headers?.length) {
+                            response += `### Missing Headers\n`;
+                            data.missing_headers.forEach(h => {
+                                response += `- **${h.header}**: ${h.description}\n`;
+                            });
+                            response += '\n';
+                        }
+                        
+                        if (data.present_headers) {
+                            const present = Object.keys(data.present_headers);
+                            if (present.length) {
+                                response += `### Present Headers\n`;
+                                response += present.join(', ') + '\n';
+                            }
+                        }
+                        
+                        addMessage(response, 'bot');
+                    }
+                } catch (e) {
+                    removeLoading(loadingId);
+                    let errorMsg = "I'm having trouble connecting to the scanner.";
+                    if (e.name === 'AbortError') {
+                        errorMsg += " The backend is taking too long to respond.";
+                    } else if (e.message?.includes('Failed to fetch') || e.message?.includes('NetworkError')) {
+                        errorMsg += " The backend appears to be offline. Please make sure it's running on port 5000.";
+                    } else {
+                        errorMsg += " " + e.message;
+                    }
+                    addMessage(errorMsg, 'bot');
+                }
+            } else {
+                let found = false;
+                for (const [key, value] of Object.entries(KNOWLEDGE)) {
+                    if (lower.includes(key)) {
+                        removeLoading(loadingId);
+                        addMessage(value, 'bot');
+                        found = true;
+                        break;
+                    }
+                }
+                
+                if (!found) {
+                    if (lower.includes('hi') || lower.includes('hello') || lower.includes('hey')) {
+                        removeLoading(loadingId);
+                        addMessage(RESPONSES.greeting[Math.floor(Math.random() * RESPONSES.greeting.length)], 'bot');
+                    } else if (lower.includes('thank')) {
+                        removeLoading(loadingId);
+                        addMessage(RESPONSES.thanks[Math.floor(Math.random() * RESPONSES.thanks.length)], 'bot');
+                    } else if (lower.includes('help') || lower.includes('what can you do')) {
+                        removeLoading(loadingId);
+                        addMessage(RESPONSES.help[0], 'bot');
+                    } else {
+                        removeLoading(loadingId);
+                        addMessage(RESPONSES.unclear[0], 'bot');
+                    }
+                }
+            }
+            
+            input.disabled = false;
+            sendBtn.disabled = false;
+            input.focus();
+        }
+        
+        function addMessage(text, sender) {
+            const div = document.createElement('div');
+            div.className = `message ${sender}`;
+            div.innerHTML = `
+                <div class="messageAvatar">${sender === 'user' ? 'You' : 'AI'}</div>
+                <div class="messageContent">${text}</div>
+            `;
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function addLoading() {
+            const id = 'loading-' + Date.now();
+            const div = document.createElement('div');
+            div.className = 'message bot';
+            div.id = id;
+            div.innerHTML = `
+                <div class="messageAvatar">AI</div>
+                <div class="messageContent"><div class="loading"><div class="loading-dot"></div><div class="loading-dot"></div><div class="loading-dot"></div></div></div>
+            `;
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            return id;
+        }
+        
+        function removeLoading(id) {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        }
+    </script>
+</body>
+</html>
